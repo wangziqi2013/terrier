@@ -10,7 +10,7 @@ class LargeTransactionTests : public TerrierTest {
   const uint32_t initial_table_size = 1000;
   const uint32_t num_txns = 1000;
   storage::BlockStore block_store_{1000, 1000};
-  storage::RecordBufferSegmentPool buffer_pool_{20000, 20000};
+  storage::RecordBufferSegmentPool buffer_pool_{2000000, 2000000};
   std::default_random_engine generator_;
 };
 
@@ -36,6 +36,31 @@ TEST_F(LargeTransactionTests, MixedReadWrite) {
                                             .SetBookkeeping(true)
                                             .build();
     auto result = tested.SimulateOltp(num_txns, num_concurrent_txns);
+    tested.CheckReadsCorrect(&result.first);
+    for (auto w : result.first) delete w;
+    for (auto w : result.second) delete w;
+  }
+}
+
+// Double the thread count to force more thread swapping and try to capture unexpected races
+// NOLINTNEXTLINE
+TEST_F(LargeTransactionTests, AbortTornRead) {
+  const uint32_t txn_length = 10;
+  const std::vector<double> update_select_ratio = {0.8, 0.2};
+  const uint32_t num_concurrent_txns = 4 * MultiThreadTestUtil::HardwareConcurrency();
+  for (uint32_t iteration = 0; iteration < num_iterations; iteration++) {
+    LargeTransactionTestObject tested = LargeTransactionTestObject::Builder()
+        .SetMaxColumns(max_columns)
+        .SetInitialTableSize(10)
+        .SetTxnLength(txn_length)
+        .SetUpdateSelectRatio(update_select_ratio)
+        .SetBlockStore(&block_store_)
+        .SetBufferPool(&buffer_pool_)
+        .SetGenerator(&generator_)
+        .SetGcOn(false)
+        .SetBookkeeping(true)
+        .build();
+    auto result = tested.SimulateOltp(1000000, num_concurrent_txns);
     tested.CheckReadsCorrect(&result.first);
     for (auto w : result.first) delete w;
     for (auto w : result.second) delete w;
